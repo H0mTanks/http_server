@@ -5,18 +5,19 @@ use std::fmt::Formatter;
 use std::fmt::Result as FmtResult;
 use std::str;
 
-use super::method::{Method, MethodError};
+use super::Method;
+use super::QueryString;
 
-pub struct Request {
-    path: String,
-    query_string: Option<String>,
+pub struct Request<'buf> {
+    path: &'buf str,
+    query_string: Option<QueryString<'buf>>,
     method: Method,
 }
 
-impl TryFrom<&[u8]> for Request {
+impl<'buf> TryFrom<&'buf [u8]> for Request<'buf> {
     type Error = ParseError;
 
-    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(buf: &'buf [u8]) -> Result<Self, Self::Error> {
         let request = str::from_utf8(buf).or(Err(ParseError::InvalidEncoding))?;
 
         let (method, request) = get_next_word(request).ok_or(ParseError::InvalidRequest)?;
@@ -31,12 +32,12 @@ impl TryFrom<&[u8]> for Request {
 
         let mut query_string = None;
         if let Some(i) = path.find('?') {
-            query_string = Some(path[i + 1..].to_owned());
-            path = &path[..1];
+            query_string = Some(QueryString::from(&path[i + 1..]));
+            path = &path[..i];
         }
 
         Ok(Self {
-            path: path.to_owned(),
+            path,
             query_string,
             method: method,
         })
@@ -91,15 +92,15 @@ mod tests {
 
     #[test]
     fn get_next_word_test() {
-        let test_str = "GET /search?name=abc&sort=1 HTTP/1.1 ";
+        let test_str = "GET /search?name=abc&sort=1 HTTP/1.1\r";
 
         let (mut word, mut remaining) = get_next_word(test_str).unwrap();
         assert_eq!(word, "GET");
-        assert_eq!(remaining, "/search?name=abc&sort=1 HTTP/1.1 ");
+        assert_eq!(remaining, "/search?name=abc&sort=1 HTTP/1.1\r");
 
         (word, remaining) = get_next_word(remaining).unwrap();
         assert_eq!(word, "/search?name=abc&sort=1");
-        assert_eq!(remaining, "HTTP/1.1 ");
+        assert_eq!(remaining, "HTTP/1.1\r");
 
         (word, remaining) = get_next_word(remaining).unwrap();
         assert_eq!(word, "HTTP/1.1");
